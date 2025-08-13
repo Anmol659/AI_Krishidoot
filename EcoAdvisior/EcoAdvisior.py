@@ -6,21 +6,16 @@ import google.generativeai as genai
 # 1. CONFIGURE YOUR GEMINI API KEY
 # ==============================================================================
 
-# **IMPORTANT**: For security, it's best to set this as an environment variable.
-# On Windows, in your terminal: set GEMINI_API_KEY="YOUR_API_KEY"
-# On macOS/Linux, in your terminal: export GEMINI_API_KEY="YOUR_API_KEY"
-# ---
-# If you prefer, you can uncomment the line below and paste your new key,
-# but be careful not to share the code with this key hardcoded.
-
-# os.environ['GEMINI_API_KEY'] = "PASTE_YOUR_NEW_API_KEY_HERE"
+# PASTE YOUR API KEY HERE
+# WARNING: Do not share your code publicly with a key hardcoded like this.
+# For your security, please regenerate this key immediately.
+API_KEY = "AIzaSyDlIjBYYWQqb_pGtLqgPvwCTQXSJxKQg30"
 
 try:
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    genai.configure(api_key=API_KEY)
     print("Gemini API Key configured successfully.")
-except KeyError:
-    print("FATAL ERROR: The 'GEMINI_API_KEY' environment variable is not set.")
-    print("Please set the environment variable or paste your key directly into the script and uncomment the line.")
+except Exception as e:
+    print(f"FATAL ERROR: Could not configure API. Error: {e}")
     exit()
 
 
