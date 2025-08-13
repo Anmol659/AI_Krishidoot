@@ -1,146 +1,188 @@
 import os
-import mimetypes # Used to check file types
+import json
+import google.generativeai as genai
 
 # ==============================================================================
-# 1. SIMULATED SPECIALIZED MODELS (Your 5 Expert Agents)
-# In a real app, these would be separate, deployed services or APIs.
+# 1. CONFIGURE YOUR GEMINI API KEY
 # ==============================================================================
 
-def terramoist_analyst(location="Rajkot"):
-    print("      -> [Model Called: TerraMoist]")
-    # ... logic to get soil data ...
-    return {"status": "OK", "data": "Soil moisture is low (0.14 m³/m³). Stress level is moderate."}
+# **IMPORTANT**: For security, it's best to set this as an environment variable.
+# On Windows, in your terminal: set GEMINI_API_KEY="YOUR_API_KEY"
+# On macOS/Linux, in your terminal: export GEMINI_API_KEY="YOUR_API_KEY"
+# ---
+# If you prefer, you can uncomment the line below and paste your new key,
+# but be careful not to share the code with this key hardcoded.
 
-def climascout_forecaster(location="Rajkot"):
-    print("      -> [Model Called: ClimaScout]")
-    # ... logic to get weather data ...
-    return {"status": "OK", "data": "Forecast is hot and sunny for the next 4 days. No rain expected."}
+# os.environ['GEMINI_API_KEY'] = "PASTE_YOUR_NEW_API_KEY_HERE"
 
-def marketpulse_tracker(crop="Cotton", market="Rajkot APMC"):
-    print("      -> [Model Called: MarketPulse]")
-    # ... logic to get market data ...
-    return {"status": "OK", "data": f"Price for {crop} at {market} is 8250 INR/quintal. Trend is stable."}
+try:
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    print("Gemini API Key configured successfully.")
+except KeyError:
+    print("FATAL ERROR: The 'GEMINI_API_KEY' environment variable is not set.")
+    print("Please set the environment variable or paste your key directly into the script and uncomment the line.")
+    exit()
 
-def crophealth_diagnoser(image_path):
-    print("      -> [Model Called: CropHealth]")
-    # ... logic to analyze image ...
-    return {"status": "OK", "data": "Diagnosis: Aphid infestation detected with high confidence."}
 
-def docu_analyzer(doc_path):
-    print("      -> [Model Called: DocuAnalyzer]")
-    # ... logic to analyze a document, e.g., a government subsidy PDF ...
-    file_name = os.path.basename(doc_path)
-    return {"status": "OK", "data": f"Summary of '{file_name}': The scheme offers a 50% subsidy on drip irrigation systems."}
+# ==============================================================================
+# 2. THE SPECIALIZED EXPERT MODELS (Your Backend Services)
+# ==============================================================================
+
+def ClimaScout(location="Rajkot"):
+    print("      [--> Specialized Model Called: ClimaScout]")
+    return {"weather_forecast": "Sunny and hot, high of 39 C, no rain expected for the next 5 days."}
+
+def TerraMoist(location="Rajkot"):
+    print("      [--> Specialized Model Called: TerraMoist]")
+    return {"soil_analysis": "Soil moisture is critically low (0.12 m3/m3), indicating a 'High Stress' level."}
+
+def PestPredict(location="Rajkot", crop="Cotton"):
+    print("      [--> Specialized Model Called: PestPredict]")
+    return {"pest_forecast": "High risk of aphid and whitefly activity due to the current dry and hot conditions."}
+
+def MarketPulse(crop="Cotton"):
+    print("      [--> Specialized Model Called: MarketPulse]")
+    return {"market_data": "Price for Cotton at Rajkot APMC is strong at 8350 INR/quintal with a stable upward trend."}
+
+def ProfitPilot(crop="Cotton", loan_amount=50000):
+    print("      [--> Specialized Model Called: ProfitPilot]")
+    return {"financial_advice": f"The profit forecast for {crop} is positive. A loan of {loan_amount} INR for expansion is considered viable given the strong market."}
+
+# This dictionary maps the model names Gemini will return to the actual Python functions
+AVAILABLE_MODELS = {
+    "ClimaScout": ClimaScout,
+    "TerraMoist": TerraMoist,
+    "PestPredict": PestPredict,
+    "MarketPulse": MarketPulse,
+    "ProfitPilot": ProfitPilot,
+}
+
+# ==============================================================================
+# 3. THE TWO-STEP GEMINI LOGIC
+# ==============================================================================
+
+def gemini_as_router(query_text, has_image=False, has_audio=False):
+    """
+    *** GEMINI API CALL 1: THE ROUTER ***
+    Analyzes the user's query to intelligently decide which models to call.
+    """
+    print("\n[GEMINI-ROUTER]: Analyzing query to determine required models...")
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
-def gemini_rag_synthesizer(context_data, query):
-    print("      -> [Model Called: Gemini RAG Synthesizer]")
-    # ... logic to call Gemini API with context ...
-    # This simulates Gemini creating a comprehensive answer
-    response = " 종합적인 조언:\n" # "Comprehensive Advice:" in Korean
-    response += "1. **Irrigation**: Given the moderate soil stress and no rain forecasted, you should plan to irrigate within the next 2 days.\n"
-    response += "2. **Pest Control**: The image confirms an Aphid infestation. You need to take action.\n"
-    response += "3. **Market**: Prices are stable, so selling is a good option but not urgent."
-    return {"status": "OK", "data": response}
+    prompt = f"""
+    You are an expert dispatcher for an agricultural AI system called EcoAdvisor.
+    Your job is to analyze a farmer's query and decide which specialized models are needed to provide a complete answer.
 
+    The available models are:
+    - "ClimaScout": For weather, rain, temperature, forecast.
+    - "TerraMoist": For soil health, irrigation, water levels, moisture.
+    - "PestPredict": For pests, diseases, insects, bugs, or if an image of a plant is provided.
+    - "MarketPulse": For crop prices, market rates, selling, mandi bhav.
+    - "ProfitPilot": For loans, profit, investment, financial planning.
 
-# ==============================================================================
-# 2. THE ECOADVISOR - INTELLIGENT ROUTER CLASS
-# ==============================================================================
+    **Farmer's Query:** "{query_text}"
+    **Input includes an image?** {"Yes" if has_image else "No"}
+    **Input includes a voice note?** {"Yes" if has_audio else "No"}
 
-class EcoAdvisor:
+    Based *only* on the query and input type, which models should be called?
+    Return your answer as a clean JSON-formatted list of strings.
+    Example: ["MarketPulse", "ProfitPilot"]
     """
-    An intelligent routing system that analyzes user queries and dispatches
-    them to the appropriate specialized model.
+    
+    try:
+        response = model.generate_content(prompt)
+        # Clean the response to ensure it's valid JSON
+        model_list_str = response.text.strip().replace("`", "").replace("json", "")
+        models_to_call = json.loads(model_list_str)
+        print(f"   [Router Decision: The following models are required: {models_to_call}]")
+        return models_to_call
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"   [Router Error]: Could not parse Gemini's response. Using default. Error: {e}")
+        return ["ClimaScout", "TerraMoist"] # Fallback on error
+
+def execute_specialized_models(models_to_call):
     """
-    def __init__(self):
-        print("EcoAdvisor Initialized. Ready to assist.")
-        # Keyword mapping to route simple text queries
-        self.keyword_to_model_map = {
-            "price": marketpulse_tracker,
-            "market": marketpulse_tracker,
-            "bhav": marketpulse_tracker, # "Price" in Gujarati
-            "weather": climascout_forecaster,
-            "rain": climascout_forecaster,
-            "temperature": climascout_forecaster,
-            "soil": terramoist_analyst,
-            "moisture": terramoist_analyst,
-            "irrigate": terramoist_analyst,
-        }
+    Calls the actual specialized models decided by the Gemini router.
+    """
+    print("\n[EXECUTOR]: Calling the specialized models...")
+    collected_data = {}
+    for model_name in models_to_call:
+        if model_name in AVAILABLE_MODELS:
+            model_function = AVAILABLE_MODELS[model_name]
+            collected_data.update(model_function())
+        else:
+            print(f"   [Executor Warning]: Model '{model_name}' not found in available models.")
+    return collected_data
 
-    def _get_file_type(self, file_path):
-        """Checks if a file is an image, document, or other."""
-        if not file_path or not os.path.exists(file_path):
-            return None
-        mime_type, _ = mimetypes.guess_type(file_path)
-        if mime_type:
-            if mime_type.startswith('image/'):
-                return 'image'
-            if mime_type == 'application/pdf' or mime_type.startswith('text/'):
-                return 'document'
-        return 'other'
+def gemini_as_synthesizer(original_query, context_data):
+    """
+    *** GEMINI API CALL 2: THE SYNTHESIZER ***
+    Takes the structured data and crafts the final, human-readable answer.
+    """
+    print("\n[GEMINI-SYNTHESIZER]: All data collected. Generating final response...")
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Create a string from the collected data for the prompt
+    context_str = json.dumps(context_data, indent=2)
 
-    def route_query(self, query_text="", file_path=None):
-        """
-        The main routing logic. It inspects the query and file to decide which model to call.
-        """
-        print(f"\n======================================================\n🚀 New Query Received: text='{query_text}', file='{file_path}'")
-        
-        # --- Priority 1: Handle files ---
-        file_type = self._get_file_type(file_path)
-        if file_type == 'image':
-            print("   [Routing Decision: File is an image. Using CropHealth.]")
-            return crophealth_diagnoser(file_path)
-        
-        if file_type == 'document':
-            print("   [Routing Decision: File is a document. Using DocuAnalyzer.]")
-            return docu_analyzer(file_path)
+    prompt = f"""
+    You are EcoAdvisor, a helpful and expert AI assistant for farmers in India.
+    Your task is to create a single, clear, and actionable response to a farmer's query using the real-time data provided to you.
+    Do not mention the names of the internal models (like TerraMoist, ClimaScout). Just give the advice directly.
 
-        # --- Priority 2: Handle simple text queries with keywords ---
-        for keyword, model_func in self.keyword_to_model_map.items():
-            if keyword in query_text.lower():
-                print(f"   [Routing Decision: Keyword '{keyword}' found. Using {model_func.__name__}.]")
-                return model_func()
-        
-        # --- Priority 3: Fallback to complex RAG for generic or multi-part questions ---
-        print("   [Routing Decision: No specific keywords or files. Using full Gemini RAG.]")
-        # In a real scenario, we would gather context from multiple models
-        print("      -> [RAG Step: Gathering context...]")
-        context = {
-            "soil": terramoist_analyst()['data'],
-            "weather": climascout_forecaster()['data'],
-            "health_notes": "Image analysis suggests pest issues." if file_type else "No image provided."
-        }
-        return gemini_rag_synthesizer(context, query_text)
+    **Farmer's Original Query:** "{original_query}"
+
+    **Real-time Data Collected:**
+    {context_str}
+
+    Based on the data above, provide a comprehensive, easy-to-understand answer.
+    Structure the answer with headings if needed. Start with a friendly greeting.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Sorry, I encountered an error while generating the final response. Error: {e}"
 
 # ==============================================================================
-# 3. HOW TO USE THE ECOADVISOR
+# 4. MAIN HANDLER
 # ==============================================================================
 
-if __name__ == '__main__':
-    # Create a single instance of the advisor
-    advisor = EcoAdvisor()
+def main_handler(query_text, has_image=False, has_audio=False):
+    """
+    Handles a user query from start to finish using the two-step Gemini process.
+    """
+    print(f"====================================================================\nNew Job Started for Query: '{query_text}'")
+    
+    # Step 1: Use Gemini as a router.
+    models_needed = gemini_as_router(query_text, has_image, has_audio)
+    
+    # Step 2: Execute the specialized models.
+    collected_data = execute_specialized_models(models_needed)
+    
+    # Step 3: Use Gemini as a synthesizer.
+    if not collected_data:
+        print("\n[Executor Warning]: No data was collected from specialized models. Cannot proceed.")
+        return
+        
+    final_answer = gemini_as_synthesizer(query_text, collected_data)
+    
+    print("\nJob Complete. Final response below:")
+    print("--------------------------------------------------------------------")
+    print(final_answer)
+    print("====================================================================\n")
 
-    # --- SIMULATION 1: Simple text query about price ---
-    # EXPECTATION: Only the MarketPulse model should be called.
-    response1 = advisor.route_query(query_text="What is the cotton bhav today?")
-    print("   >> Final Answer:", response1['data'])
+# ==============================================================================
+# 5. SIMULATIONS
+# ==============================================================================
 
-    # --- SIMULATION 2: Image-based query ---
-    # EXPECTATION: Only the CropHealth model should be called.
-    # Create a dummy file to simulate the farmer's upload
-    with open("dummy_leaf_image.jpg", "w") as f: f.write("fake image data")
-    response2 = advisor.route_query(query_text="What is this disease?", file_path="dummy_leaf_image.jpg")
-    print("   >> Final Answer:", response2['data'])
-    os.remove("dummy_leaf_image.jpg") # Clean up dummy file
+if __name__ == "__main__":
+    # --- Simulation 1: Farmer sends an image and asks about pests ---
+    main_handler(query_text="What is this disease on my cotton plant?", has_image=True)
 
-    # --- SIMULATION 3: Simple document query ---
-    # EXPECTATION: Only the DocuAnalyzer model should be called.
-    with open("subsidy_scheme.pdf", "w") as f: f.write("fake pdf data")
-    response3 = advisor.route_query(query_text="Can you summarize this for me?", file_path="subsidy_scheme.pdf")
-    print("   >> Final Answer:", response3['data'])
-    os.remove("subsidy_scheme.pdf") # Clean up dummy file
-
-    # --- SIMULATION 4: Complex, multi-part query ---
-    # EXPECTATION: The system should fall back to the full RAG process.
-    response4 = advisor.route_query(query_text="My plants look sick and the soil is dry, what should I do?")
-    print("   >> Final Answer:", response4['data'])
+    # --- Simulation 2: Farmer asks a complex financial and market question ---
+    main_handler(query_text="Market rates seem good. Should I sell now, or should I take a loan to buy more fertilizer first?")
+    
+    # --- Simulation 3: Farmer records a voice note asking about irrigation ---
+    main_handler(query_text="The ground looks very dry. Do I need to water my fields today?", has_audio=True)
