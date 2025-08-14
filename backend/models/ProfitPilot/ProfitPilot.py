@@ -1,155 +1,121 @@
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
-import datetime
+from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.preprocessing import LabelEncoder
+from datetime import datetime
+import joblib
 
-class PricePredictor:
-    """
-    A dedicated module to train a model and predict crop prices based on historical
-    market and weather data. This will be used by the EcoAdvisor's other agents.
-    """
-    # The __init__ method should take variable names, not the file paths themselves.
-    def __init__(self, price_data_path, weather_data_path, location_data_path):
-        """
-        Initializes the predictor by loading data and training the ML model.
-        """
-        print("Initializing PricePredictor: Loading data and training model...")
-        self.model = None
-        self.feature_names = []
-        self.is_ready = False
-        try:
-            # Load, clean, and merge data
-            self.data = self._load_and_prepare_data(r"C:/Users/anmol/Downloads/final_project_dataset.csv", r"C:/Users/anmol/Downloads/Weather data.xlsx", r"C:/Users/anmol/Downloads/Location information.xlsx")
-            if self.data is not None:
-                # Train the model upon initialization
-                self._train_model()
-                self.is_ready = True
-                print("PricePredictor is trained and ready.")
-        except Exception as e:
-            print(f"Error during PricePredictor initialization: {e}")
+# ===============================
+# Load dataset
+# ===============================
+df = pd.read_csv(r"C:\Users\theha\Downloads\agmarknet_merged_monthwise.csv")
 
-    def _load_and_prepare_data(self, price_path, weather_path, location_path):
-        """
-        Private method to load, merge, and engineer features from the datasets.
-        """
-        try:
-            # Added encoding='ISO-8859-1' to handle potential file format issues.
-            price_df = pd.read_csv(price_path, encoding='ISO-8859-1')
-            # Use read_excel for .xlsx files
-            weather_df = pd.read_excel(weather_path)
-            location_df = pd.read_excel(location_path)
-        except FileNotFoundError as e:
-            print(f"Data file not found: {e}. Please ensure all files are present.")
-            return None
-        except Exception as e:
-            # Catch other potential errors, like needing to install 'openpyxl'
-            print(f"An error occurred loading data. You might need to run 'pip install openpyxl'. Details: {e}")
-            return None
+# Parse date
+df["Arrival Date"] = pd.to_datetime(df["Arrival Date"], format="%d/%m/%Y", errors="coerce")
 
-        # --- Focus on Cotton in Saurashtra (e.g., Rajkot market) ---
-        df = price_df[price_df['Commodity'] == 'Cotton (Unginned)'].copy()
-        df['Price Date'] = pd.to_datetime(df['Price Date'], errors='coerce')
+# Drop rows where date or target price is missing
+df = df.dropna(subset=["Arrival Date", "Modal Price(Rs./Quintal)"])
 
-        # --- Process and Merge Weather Data ---
-        df['avg_temp'] = weather_df['temperature_celsius'].mean()
-        df['precipitation'] = weather_df['precip_mm'].mean()
-        df['humidity'] = weather_df['humidity'].mean()
+# Convert numeric columns from string to float
+for col in ["Arrivals (Tonnes)", "Minimum Price(Rs./Quintal)", "Maximum Price(Rs./Quintal)", "Modal Price(Rs./Quintal)"]:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        # --- Feature Engineering ---
-        df['day_of_year'] = df['Price Date'].dt.dayofyear
-        df['month'] = df['Price Date'].dt.month
-        df['year'] = df['Price Date'].dt.year
-        df['day_of_week'] = df['Price Date'].dt.dayofweek
-        
-        # Drop rows with missing dates or target values
-        df.dropna(subset=['Price Date', 'Modal_Price'], inplace=True)
-        return df
+# Extract date features
+df["day"] = df["Arrival Date"].dt.day
+df["month"] = df["Arrival Date"].dt.month
+df["year"] = df["Arrival Date"].dt.year
 
-    def _train_model(self):
-        """
-        Trains the RandomForestRegressor model.
-        """
-        print("   -> Training price prediction model...")
-        self.feature_names = ['day_of_year', 'month', 'year', 'day_of_week', 'avg_temp', 'precipitation', 'humidity']
-        target = 'Modal_Price'
+# Fill missing numeric columns
+df["Arrivals (Tonnes)"] = df["Arrivals (Tonnes)"].fillna(0)
+df["Minimum Price(Rs./Quintal)"] = df["Minimum Price(Rs./Quintal)"].fillna(df["Minimum Price(Rs./Quintal)"].median())
+df["Maximum Price(Rs./Quintal)"] = df["Maximum Price(Rs./Quintal)"].fillna(df["Maximum Price(Rs./Quintal)"].median())
 
-        X = self.data[self.feature_names]
-        y = self.data[target]
-        
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# Encode categorical columns
+label_encoders = {}
+for col in ["Market", "Variety"]:
+    df[col] = df[col].fillna("Unknown")
+    le = LabelEncoder()
+    df[col] = le.fit_transform(df[col])
+    label_encoders[col] = le
 
-        self.model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
-        self.model.fit(X_train, y_train)
-        
-        accuracy = self.model.score(X_test, y_test)
-        print(f"   -> Model training complete. Accuracy (R^2 Score): {accuracy:.2f}")
+# Features and target
+feature_cols = [
+    "Market",
+    "Arrivals (Tonnes)",
+    "Variety",
+    "Minimum Price(Rs./Quintal)",
+    "Maximum Price(Rs./Quintal)",
+    "day",
+    "month",
+    "year"
+]
+X = df[feature_cols]
+y = df["Modal Price(Rs./Quintal)"]
 
-    def predict_price(self, future_sale_date, weather_scenario="Normal"):
-        """
-        Predicts the price for a future date and given weather scenario.
-        """
-        if not self.is_ready:
-            return {"error": "Model is not ready for prediction."}
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        print(f"   -> Generating prediction for {future_sale_date} with '{weather_scenario}' weather...")
-        
-        future_date = pd.to_datetime(future_sale_date)
-        future_features_df = pd.DataFrame({
-            'day_of_year': [future_date.timetuple().tm_yday],
-            'month': [future_date.month],
-            'year': [future_date.year],
-            'day_of_week': [future_date.weekday()],
-            'avg_temp': [self.data['avg_temp'].mean()],
-            'precipitation': [self.data['precipitation'].mean()],
-            'humidity': [self.data['humidity'].mean()]
-        })
+# Model
+model = RandomForestRegressor(n_estimators=200, max_depth=15, random_state=42)
+model.fit(X_train, y_train)
 
-        if weather_scenario == "Dry Spell (Low Rain)":
-            future_features_df['precipitation'] *= 0.5
-            future_features_df['avg_temp'] *= 1.05
-        elif weather_scenario == "Heavy Monsoon (High Rain)":
-            future_features_df['precipitation'] *= 1.5
-            future_features_df['avg_temp'] *= 0.98
+# Predictions for evaluation
+y_pred = model.predict(X_test)
+print("MAE:", mean_absolute_error(y_test, y_pred))
+print("R² Score:", r2_score(y_test, y_pred))
 
-        future_features_df = future_features_df[self.feature_names]
+# ===============================
+# Save the trained model & encoders
+# ===============================
+joblib.dump(model, "cotton_price_model.pkl")
+joblib.dump(label_encoders, "label_encoders.pkl")
+print("Model and encoders saved successfully!")
 
-        predicted_price = self.model.predict(future_features_df)[0]
-        
-        return {"predicted_price_per_quintal": round(predicted_price, 2)}
+# ===============================
+# Historical averages for missing data
+# ===============================
+# Group by market & month for auto-filling
+market_month_avg = df.groupby(["Market", "month"]).agg({
+    "Arrivals (Tonnes)": "mean",
+    "Minimum Price(Rs./Quintal)": "mean",
+    "Maximum Price(Rs./Quintal)": "mean"
+}).to_dict()
 
-
-# --- Example of how EcoAdvisor would use this module ---
-if __name__ == '__main__':
-    # When you run the script, it expects the data files to be in the same directory,
-    # or you can provide the full path.
-    price_predictor = PricePredictor(
-        price_data_path=r"C:\Users\anmol\Downloads\final_project_dataset.csv",
-        weather_data_path=r"C:\Users\anmol\Downloads\Weather data.xlsx",
-        location_data_path=r"C:\Users\anmol\Downloads\Location information.xlsx"
-    )
+# ===============================
+# Predict function for LLM pipeline
+# ===============================
+def predict_price(date_str, market_name, variety_name="Other", arrivals=None, min_price=None, max_price=None):
+    date_obj = datetime.strptime(date_str, "%d/%m/%Y")
+    month = date_obj.month
     
-    print("\n" + "="*50)
-
-    # Simulate a farmer's query
-    farmer_sale_date = datetime.date.today() + datetime.timedelta(days=60)
-    farmer_weather_outlook = "Dry Spell (Low Rain)"
-
-    print(f"EcoAdvisor: Farmer wants to know the price forecast for a sale on {farmer_sale_date}.")
+    # Encode market & variety
+    market_encoded = label_encoders["Market"].transform([market_name])[0]
+    variety_encoded = label_encoders["Variety"].transform([variety_name])[0]
     
-    if price_predictor.is_ready:
-        forecast = price_predictor.predict_price(
-            future_sale_date=farmer_sale_date,
-            weather_scenario=farmer_weather_outlook
-        )
-        
-        print("\n--- Price Forecast Result ---")
-        if "error" in forecast:
-            print(f"Could not generate forecast: {forecast['error']}")
-        else:
-            price = forecast['predicted_price_per_quintal']
-            print(f"The predicted price for cotton is: {price:,.2f} INR per Quintal")
-            print("This information will now be passed to the ProfitPilot agent for financial analysis.")
-    else:
-        print("Could not generate forecast because the PricePredictor failed to initialize.")
-        
-    print("="*50)
+    # Auto-fill from historical averages if missing
+    if arrivals is None or min_price is None or max_price is None:
+        avg_arrivals = market_month_avg[("Arrivals (Tonnes)")].get((market_encoded, month), 0)
+        avg_min = market_month_avg[("Minimum Price(Rs./Quintal)")].get((market_encoded, month), df["Minimum Price(Rs./Quintal)"].median())
+        avg_max = market_month_avg[("Maximum Price(Rs./Quintal)")].get((market_encoded, month), df["Maximum Price(Rs./Quintal)"].median())
+        arrivals = arrivals if arrivals is not None else avg_arrivals
+        min_price = min_price if min_price is not None else avg_min
+        max_price = max_price if max_price is not None else avg_max
+    
+    # Prepare input features
+    features_df = pd.DataFrame([[
+        market_encoded,
+        arrivals,
+        variety_encoded,
+        min_price,
+        max_price,
+        date_obj.day,
+        date_obj.month,
+        date_obj.year
+    ]], columns=feature_cols)
+    
+    return model.predict(features_df)[0]
+
+# Example usage
+pred_price = predict_price(date_str="15/10/2025", market_name="Amreli")
+print(f"Predicted Modal Price: Rs. {pred_price:.2f}")
