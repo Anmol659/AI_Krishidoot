@@ -12,6 +12,20 @@ An AI-powered agricultural advisory system for Indian farmers, providing weather
 
 ## Quick Start
 
+### Hugging Face Spaces Deployment
+
+This project is ready for deployment on Hugging Face Spaces:
+
+1. Create a new Space on Hugging Face
+2. Upload all files from the backend directory
+3. Set your environment variables in the Space settings:
+   - `GOOGLE_API_KEY`
+   - `OPENWEATHER_API_KEY`
+   - `AGMARKNET_API_KEY`
+   - `SOIL_API_URL` (optional)
+   - `SOIL_API_KEY` (optional)
+4. The Gradio interface will automatically launch
+
 ### Using Docker (Recommended)
 
 1. Clone the repository and navigate to the backend directory:

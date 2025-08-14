@@ -31,7 +31,7 @@ RUN useradd --create-home --shell /bin/bash app && \
 USER app
 
 # Expose port (adjust if needed)
-EXPOSE 8000
+EXPOSE 7860
 
-# Set the default command to run the main EcoAdvisor script
-CMD ["python", "EcoAdvisior/EcoAdvisior.py"]
+# Set the default command to run the Gradio app
+CMD ["python", "app.py"]
