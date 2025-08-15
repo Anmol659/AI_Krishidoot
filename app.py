@@ -7,7 +7,7 @@ import json
 # Add the current directory to Python path to import EcoAdvisor
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from EcoAdvisior.EcoAdvisior import main_handler, parse_location_and_crop
+from EcoAdvisior.py import main_handler, parse_location_and_crop
 
 # Custom CSS for better styling
 custom_css = """
