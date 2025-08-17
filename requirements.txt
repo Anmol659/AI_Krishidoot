@@ -10,3 +10,6 @@ retry-requests==2.0.0
 numpy==1.24.4
 pydantic
 fastapi
+uvicorn
+python-multipart
+twilio
