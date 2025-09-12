@@ -8,14 +8,14 @@ def get_hyperlocal_weather(location: str) -> str:
     """
     Fetches hyper-local weather data from OpenWeatherMap API.
     Args:
-        location: City name (e.g., 'Rajkot', 'Jamnagar')
+        location: City or District name (e.g., 'Amritsar', 'Ludhiana')
     Returns:
         A string describing current weather conditions or an error message.
     """
     params = {
-        'q': f"{location},IN",  # City + country code for accuracy
+        'q': f"{location},IN",  # Location + country code for accuracy
         'appid': API_KEY,
-        'units': 'metric'       # Temperature in Celsius
+        'units': 'metric'      # Temperature in Celsius
     }
 
     try:
@@ -43,17 +43,18 @@ def get_hyperlocal_weather(location: str) -> str:
     except Exception as e:
         return f"Unexpected error: {e}"
 
-# Test mode (only runs when executed directly)
+# --- Main execution block ---
 if __name__ == "__main__":
-    print("--- Fetching Weather for Key Cities in Saurashtra ---")
-    saurashtra_cities = [
-        "Rajkot",
-        "Jamnagar",
-        "Bhavnagar",
-        "Junagadh",
-        "Porbandar",
-        "Amreli",
-        "Surendranagar"
+    print("--- Fetching Weather for All Districts in Punjab ---")
+    
+    # Comprehensive list of all districts in Punjab
+    punjab_districts = [
+        "Amritsar", "Barnala", "Bathinda", "Faridkot", "Fatehgarh Sahib",
+        "Fazilka", "Ferozepur", "Gurdaspur", "Hoshiarpur", "Jalandhar",
+        "Kapurthala", "Ludhiana", "Malerkotla", "Mansa", "Moga", "Muktsar",
+        "Pathankot", "Patiala", "Rupnagar", "Mohali", "Sangrur", "Nawanshahr",
+        "Tarn Taran"
     ]
-    for city in saurashtra_cities:
-        print(get_hyperlocal_weather(city))
+    
+    for district in punjab_districts:
+        print(get_hyperlocal_weather(district))
