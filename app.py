@@ -1,40 +1,71 @@
-# app.py
-from fastapi import FastAPI, UploadFile, Form
-from pydantic import BaseModel
-from typing import Optional
-import uvicorn
-from backend.EcoAdvisior.EcoAdvisior import main_handler
+import os
+from fastapi import FastAPI, Form, Response
+from twilio.twiml.messaging_response import MessagingResponse
+from dotenv import load_dotenv
 
+# --- Import your main EcoAdvisor function ---
+from backend.EcoAdvisior.EcoAdvisior import get_ai_response 
 
-app = FastAPI(title="EcoAdvisor API")
+load_dotenv()
+app = FastAPI()
 
-class QueryRequest(BaseModel):
-    query: str
-    has_image: Optional[bool] = False
-    has_audio: Optional[bool] = False
+# --- User Session Memory ---
+# In app.py
 
-@app.post("/query")
-def process_query(req: QueryRequest):
-    try:
-        # Capture output by modifying main_handler to return the string instead of printing
-        from io import StringIO
-        import sys
-        buffer = StringIO()
-        sys_stdout = sys.stdout
-        sys.stdout = buffer
+# ... (keep all your imports) ...
 
-        main_handler(req.query, has_image=req.has_image, has_audio=req.has_audio)
+# --- User Session Memory ---
+user_sessions = {}
 
-        sys.stdout = sys_stdout
-        output = buffer.getvalue()
+# --- Keywords and Choices ---
+GREETINGS = ["hi", "hello", "menu", "start", "help", "hey"]
+LANGUAGES = {
+    "1": "English", "english": "English",
+    "2": "Hindi",   "hindi": "Hindi",
+    "3": "Gujarati","gujarati": "Gujarati"
+}
+# Add translated messages
+LANGUAGE_MESSAGES = {
+    "English": "Language has been set to English. How can I help you today?",
+    "Hindi": "भाषा हिंदी में सेट हो गई है। मैं आपकी क्या मदद कर सकता हूँ?",
+    "Gujarati": "ભાષા ગુજરાતીમાં સેટ કરવામાં આવી છે. હું તમને કેવી રીતે મદદ કરી શકું?"
+}
+LANGUAGE_MENU = """Welcome to AI-Krishidoot! 🌱
+Please choose your language by replying with a number or name:
+1. English
+2. हिन्दी (Hindi)
+3. ગુજરાતી (Gujarati)"""
 
-        return {"success": True, "response": output}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+# In your app.py file
 
-@app.get("/")
-def root():
-    return {"message": "EcoAdvisor is running!"}
+@app.post("/api/whatsapp")
+async def handle_whatsapp_message(From: str = Form(...), Body: str = Form(...)):
+    """
+    Handles incoming WhatsApp messages. If it's a greeting, it ONLY shows the
+    language menu. Otherwise, it calls the EcoAdvisor AI.
+    """
+    user_number = From
+    user_message = Body.lower().strip()
+    reply_text = ""
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    # This 'if' block handles greetings FIRST.
+    if user_message in GREETINGS or user_message == "change language":
+        reply_text = LANGUAGE_MENU
+    
+    # This 'elif' block handles the language selection.
+    elif user_message in LANGUAGES:
+        chosen_lang = LANGUAGES[user_message]
+        user_sessions[user_number] = chosen_lang
+        reply_text = LANGUAGE_MESSAGES.get(chosen_lang, LANGUAGE_MESSAGES["English"])
+    
+    # The AI is ONLY called in this 'else' block for all other queries.
+    else:
+        chosen_lang = user_sessions.get(user_number, "English")
+        ai_response_text = get_ai_response(query_text=user_message, lang=chosen_lang)
+        reply_text = f"{ai_response_text}\n\n---\nReply with 'menu' to change language."
+
+    # Create and send the final reply
+    twiml_response = MessagingResponse()
+    twiml_response.message(reply_text)
+    
+    return Response(content=str(twiml_response), media_type="application/xml")
