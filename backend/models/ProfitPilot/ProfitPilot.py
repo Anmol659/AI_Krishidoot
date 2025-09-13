@@ -9,51 +9,51 @@ import joblib
 # ===============================
 # Load dataset
 # ===============================
-df = pd.read_csv(r"C:\Users\theha\Downloads\agmarknet_merged_monthwise.csv")
+df = pd.read_csv(r"C:/Users/anmol/OneDrive/Desktop/AI_Krishidoot/backend/models/ProfitPilot/crop_data.csv")
 
 # Parse date
-df["Arrival Date"] = pd.to_datetime(df["Arrival Date"], format="%d/%m/%Y", errors="coerce")
+df["Last Updated On"] = pd.to_datetime(df["Last Updated On"], format="%d %b %Y", errors="coerce")
 
 # Drop rows where date or target price is missing
-df = df.dropna(subset=["Arrival Date", "Modal Price(Rs./Quintal)"])
+df = df.dropna(subset=["Last Updated On", "Average Price (INR)"])
 
-# Convert numeric columns from string to float
-for col in ["Arrivals (Tonnes)", "Minimum Price(Rs./Quintal)", "Maximum Price(Rs./Quintal)", "Modal Price(Rs./Quintal)"]:
+# Convert numeric columns
+for col in ["Maximum Price (INR)", "Average Price (INR)", "Minimum Price (INR)"]:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
 # Extract date features
-df["day"] = df["Arrival Date"].dt.day
-df["month"] = df["Arrival Date"].dt.month
-df["year"] = df["Arrival Date"].dt.year
-
-# Fill missing numeric columns
-df["Arrivals (Tonnes)"] = df["Arrivals (Tonnes)"].fillna(0)
-df["Minimum Price(Rs./Quintal)"] = df["Minimum Price(Rs./Quintal)"].fillna(df["Minimum Price(Rs./Quintal)"].median())
-df["Maximum Price(Rs./Quintal)"] = df["Maximum Price(Rs./Quintal)"].fillna(df["Maximum Price(Rs./Quintal)"].median())
+df["day"] = df["Last Updated On"].dt.day
+df["month"] = df["Last Updated On"].dt.month
+df["year"] = df["Last Updated On"].dt.year
 
 # Encode categorical columns
 label_encoders = {}
-for col in ["Market", "Variety"]:
+for col in ["District", "Market", "Commodity", "Variety"]:
     df[col] = df[col].fillna("Unknown")
     le = LabelEncoder()
     df[col] = le.fit_transform(df[col])
     label_encoders[col] = le
 
+# ===============================
 # Features and target
+# ===============================
 feature_cols = [
+    "District",
     "Market",
-    "Arrivals (Tonnes)",
+    "Commodity",
     "Variety",
-    "Minimum Price(Rs./Quintal)",
-    "Maximum Price(Rs./Quintal)",
+    "Minimum Price (INR)",
+    "Maximum Price (INR)",
     "day",
     "month",
     "year"
 ]
 X = df[feature_cols]
-y = df["Modal Price(Rs./Quintal)"]
+y = df["Average Price (INR)"]
 
+# ===============================
 # Train-test split
+# ===============================
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Model
@@ -68,7 +68,7 @@ print("R² Score:", r2_score(y_test, y_pred))
 # ===============================
 # Save the trained model & encoders
 # ===============================
-joblib.dump(model, "cotton_price_model.pkl")
+joblib.dump(model, "punjab_crop_price_model.pkl")
 joblib.dump(label_encoders, "label_encoders.pkl")
 print("Model and encoders saved successfully!")
 
@@ -77,35 +77,35 @@ print("Model and encoders saved successfully!")
 # ===============================
 # Group by market & month for auto-filling
 market_month_avg = df.groupby(["Market", "month"]).agg({
-    "Arrivals (Tonnes)": "mean",
-    "Minimum Price(Rs./Quintal)": "mean",
-    "Maximum Price(Rs./Quintal)": "mean"
+    "Minimum Price (INR)": "mean",
+    "Maximum Price (INR)": "mean"
 }).to_dict()
 
 # ===============================
-# Predict function for LLM pipeline
+# Predict function
 # ===============================
-def predict_price(date_str, market_name, variety_name="Other", arrivals=None, min_price=None, max_price=None):
+def predict_price(date_str, district_name, market_name, commodity_name, variety_name="Other", min_price=None, max_price=None):
     date_obj = datetime.strptime(date_str, "%d/%m/%Y")
     month = date_obj.month
-    
-    # Encode market & variety
+
+    # Encode categorical inputs
+    district_encoded = label_encoders["District"].transform([district_name])[0]
     market_encoded = label_encoders["Market"].transform([market_name])[0]
+    commodity_encoded = label_encoders["Commodity"].transform([commodity_name])[0]
     variety_encoded = label_encoders["Variety"].transform([variety_name])[0]
-    
-    # Auto-fill from historical averages if missing
-    if arrivals is None or min_price is None or max_price is None:
-        avg_arrivals = market_month_avg[("Arrivals (Tonnes)")].get((market_encoded, month), 0)
-        avg_min = market_month_avg[("Minimum Price(Rs./Quintal)")].get((market_encoded, month), df["Minimum Price(Rs./Quintal)"].median())
-        avg_max = market_month_avg[("Maximum Price(Rs./Quintal)")].get((market_encoded, month), df["Maximum Price(Rs./Quintal)"].median())
-        arrivals = arrivals if arrivals is not None else avg_arrivals
+
+    # Auto-fill missing values from historical averages
+    if min_price is None or max_price is None:
+        avg_min = market_month_avg[("Minimum Price (INR)")].get((market_encoded, month), df["Minimum Price (INR)"].median())
+        avg_max = market_month_avg[("Maximum Price (INR)")].get((market_encoded, month), df["Maximum Price (INR)"].median())
         min_price = min_price if min_price is not None else avg_min
         max_price = max_price if max_price is not None else avg_max
-    
+
     # Prepare input features
     features_df = pd.DataFrame([[
+        district_encoded,
         market_encoded,
-        arrivals,
+        commodity_encoded,
         variety_encoded,
         min_price,
         max_price,
@@ -113,9 +113,17 @@ def predict_price(date_str, market_name, variety_name="Other", arrivals=None, mi
         date_obj.month,
         date_obj.year
     ]], columns=feature_cols)
-    
+
     return model.predict(features_df)[0]
 
+# ===============================
 # Example usage
-pred_price = predict_price(date_str="15/10/2025", market_name="Amreli")
-print(f"Predicted Modal Price: Rs. {pred_price:.2f}")
+# ===============================
+pred_price = predict_price(
+    date_str="15/10/2025",
+    district_name="Amritsar",
+    market_name="Amritsar",
+    commodity_name="Wheat",
+    variety_name="Other"
+)
+print(f"Predicted Average Price: Rs. {pred_price:.2f}")
